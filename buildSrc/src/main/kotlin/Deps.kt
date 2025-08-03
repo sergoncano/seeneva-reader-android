@@ -42,6 +42,7 @@ object Version {
     const val ANDROIDX_SWIPE_REFRESH_LAYOUT = "1.1.0"
     const val ANDROIDX_MULTIDEX = "2.0.1"
     const val ANDROIDX_TEST_RUNNER = "1.3.0"
+    const val JUNRAR = "7.5.5"
 
     const val MATERIAL = "1.3.0"
 
@@ -149,6 +150,9 @@ object Deps {
 
     const val R_TREE =
         "com.github.davidmoten:rtree2:${Version.R_TREE}"
+
+    const val JUNRAR = 
+        "com.github.junrar:junrar:${Version.JUNRAR}"
 }
 
 object TestDeps {

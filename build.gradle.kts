@@ -130,6 +130,9 @@ subprojects {
         implementation(Deps.TINYLOG_API)
         implementation(Deps.TINYLOG_IMPL)
 
+        //.cbr to .cbz dependency
+        implementation(Deps.JUNRAR)
+
         if (name != "common") {
             implementation(project(":common"))
         }
