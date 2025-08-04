@@ -18,6 +18,7 @@
 
 package app.seeneva.reader.service.add
 
+import android.content.Intent
 import android.net.Uri
 import app.seeneva.reader.common.coroutines.Dispatchers
 import app.seeneva.reader.common.entity.FileHashData
@@ -30,8 +31,13 @@ import app.seeneva.reader.logic.usecase.FileDataUseCase
 import app.seeneva.reader.presenter.BasePresenter
 import app.seeneva.reader.presenter.Presenter
 import app.seeneva.reader.viewmodel.EventSender
+import com.github.junrar.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.zip.*
 
 /**
  * Public interface of the presenter
@@ -140,6 +146,61 @@ class AddComicBookPresenterImpl(
                 openTasks.values.map { it.fileData }
             }
         }
+        /**
+         * Convert .cbr to .cbz
+         * @param path of the .cbr file
+         * @return the path of the new file if created successfully, empty string otherwise
+         */
+        fun cbrToCbz(path: String): String {
+            val tempPath: String = "tmpComic/"
+            val cbzPath: String = path.replaceRange(path.length - 3, path.length, "cbz")
+            var fos: FileOutputStream? = null
+            var out: ZipOutputStream? = null
+            try {
+                Junrar.extract(path, tempPath)
+                fos = FileOutputStream(cbzPath)
+                out = ZipOutputStream(fos)
+                val dirToZip: File = File(tempPath)
+                zipFile(dirToZip, dirToZip.name, out)
+                File(path).delete()
+            } catch (e: Exception) {
+                return ""
+            } finally {
+                File(tempPath).deleteRecursively()
+                fos?.close()
+                out?.close()
+            }
+            return cbzPath
+        }
+
+        fun zipFile(file: File, fileName: String, outZip: ZipOutputStream) {
+            if (file.isHidden()) {
+                return
+            }
+            if (file.isDirectory()) {
+                if (fileName.endsWith("/")) {
+                    outZip.putNextEntry(ZipEntry(fileName))
+                    outZip.closeEntry()
+                } else {
+                    outZip.putNextEntry(ZipEntry(fileName + "/"))
+                    outZip.closeEntry()
+                }
+                val children: Array<File> = file.listFiles()
+                for (childFile in children) {
+                    zipFile(childFile, fileName + "/" + childFile.getName(), outZip)
+                }
+                return
+            }
+            val fis: FileInputStream = FileInputStream(file)
+            val zipEntry: ZipEntry = ZipEntry(fileName)
+            outZip.putNextEntry(zipEntry)
+            val bytes = ByteArray(1024)
+            var length: Int
+            while ((fis.read(bytes).also { length = it }) >= 0) {
+                outZip.write(bytes, 0, length)
+            }
+            fis.close()
+        }
 
         /**
          * 1. Get file data
@@ -151,12 +212,19 @@ class AddComicBookPresenterImpl(
             if (openTasks.containsKey(path)) {
                 return false
             }
-
+            var finalPath = path
+            val filePath: String = path.path.toString()
+            if(filePath.lowercase().endsWith(".cbr") && addMode == AddComicBookMode.Link) {
+                val newPathString: String = cbrToCbz(filePath)
+                if(newPathString != "") {
+                    finalPath = Uri.fromFile(File(newPathString))
+                }
+            }
             scope.launch {
                 //I decided to split file data receiving and file hash calculation to show notifications as soon as possible
-                val fileData = fileDataUseCase.getFileData(path)
+                val fileData = fileDataUseCase.getFileData(finalPath)
 
-                openTasks[path] = OpenTask(checkNotNull(coroutineContext[Job]), fileData, taskId)
+                openTasks[finalPath] = OpenTask(checkNotNull(coroutineContext[Job]), fileData, taskId)
 
                 //notify view about new task to show notifications
                 //and don't wait while file's hash will be calculated
@@ -164,12 +232,12 @@ class AddComicBookPresenterImpl(
 
                 //function to remove task from cache and notify view about it
                 val clearCacheNotify: () -> Unit = {
-                    val task = remove(path)
+                    val task = remove(finalPath)
 
                     view.onAddingFinished(task.id, fileData)
                 }
 
-                val fileHashData = runCatching { fileDataUseCase.getFileHashData(path) }
+                val fileHashData = runCatching { fileDataUseCase.getFileHashData(finalPath) }
                     .onFailure {
                         //In case of error (well...cancellation only) clear cache and notify view
                         if (it is CancellationException) {
